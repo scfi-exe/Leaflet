@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Leaflet — Goodreads Reading Stats</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Merriweather:wght@300;400;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0e0c;
+    --card: #1a1815;
+    --card-hover: #221f1a;
+    --border: #2e2a24;
+    --text: #e8e0d4;
+    --muted: #9a9080;
+    --accent: #d4a054;
+    --accent-dim: #8a6a3a;
+    --green: #6bba6b;
+    --red: #d46a54;
+  }
+  html, body { background: var(--bg); color: var(--text); font-family: 'Merriweather', Georgia, serif; min-height: 100vh; }
+  h1, h2, h3 { font-family: 'Playfair Display', Georgia, serif; }
+
+  #app { min-height: 100vh; }
+
+  /* Header */
+  .header { text-align: center; padding: 48px 24px 32px; border-bottom: 1px solid var(--border); }
+  .title {
+    font-size: 2.8rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--text), var(--accent));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .subtitle { color: var(--muted); font-size: 1rem; font-weight: 400; letter-spacing: 0.04em; }
+
+  /* Container */
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+  /* Upload */
+  .upload-zone {
+    border: 2px dashed var(--border); border-radius: 16px; padding: 64px 32px;
+    text-align: center; cursor: pointer; transition: all 0.3s ease;
+    max-width: 560px; margin: 60px auto;
+  }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: rgba(212,160,84,0.06); }
+  .upload-icon { font-size: 3rem; margin-bottom: 16px; }
+  .upload-title { font-family: 'Playfair Display', serif; font-size: 1.3rem; font-weight: 600; margin-bottom: 8px; }
+  .upload-desc { color: var(--muted); font-size: 0.88rem; line-height: 1.6; max-width: 400px; margin: 0 auto; }
+  .upload-accent { color: var(--accent); }
+
+  /* Buttons */
+  .btn {
+    background: var(--accent); color: var(--bg); border: none;
+    padding: 12px 28px; border-radius: 8px; font-family: 'Merriweather', serif;
+    font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.2s ease;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn-ghost {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 12px 28px; border-radius: 8px; font-family: 'Merriweather', serif;
+    font-size: 0.82rem; cursor: pointer; transition: all 0.2s ease;
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--text); }
+
+  /* Checkbox row */
+  .skip-row { text-align: center; margin-top: -20px; margin-bottom: 40px; }
+  .skip-row label { font-size: 0.82rem; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+  .skip-row input[type=checkbox] { accent-color: var(--accent); }
+
+  /* How-to card */
+  .howto { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 24px 28px; max-width: 560px; margin: 0 auto; }
+  .howto-title { font-family: 'Playfair Display', serif; font-size: 1.1rem; font-weight: 600; margin-bottom: 12px; }
+  .howto ol { padding-left: 20px; line-height: 1.8; font-size: 0.88rem; color: var(--muted); }
+  .howto strong { color: var(--text); }
+
+  /* Progress */
+  .progress-wrap { max-width: 480px; margin: 60px auto; text-align: center; padding: 0 24px; }
+  .progress-bar { width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 16px; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s ease; }
+  .progress-pct { font-size: 0.82rem; color: var(--muted); margin-top: 8px; }
+
+  /* Mode toggle */
+  .mode-toggle-row { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin: 32px 0; }
+  .mode-toggle { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  .mode-btn {
+    flex: 1; padding: 12px 24px; border: none; background: transparent;
+    color: var(--muted); font-family: 'Merriweather', serif; font-size: 0.9rem;
+    font-weight: 400; cursor: pointer; transition: all 0.2s ease; white-space: nowrap;
+  }
+  .mode-btn.active { background: var(--accent); color: var(--bg); font-weight: 700; }
+  .year-select {
+    background: var(--card); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 16px; border-radius: 8px; font-family: 'Merriweather', serif;
+    font-size: 0.9rem; cursor: pointer;
+  }
+
+  /* Highlights */
+  .highlights {
+    background: linear-gradient(135deg, var(--card), #1f1c16);
+    border: 1px solid var(--accent-dim); border-radius: 12px;
+    padding: 28px 32px; margin-bottom: 40px;
+  }
+  .highlights-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 16px; }
+  .highlight-item {
+    font-size: 0.95rem; line-height: 1.7; color: var(--text);
+    padding-left: 16px; border-left: 2px solid var(--accent-dim); margin-bottom: 10px;
+  }
+
+  /* Warning */
+  .warning {
+    background: rgba(212,160,84,0.08); border: 1px solid var(--accent-dim);
+    border-radius: 8px; padding: 12px 16px; font-size: 0.82rem; color: var(--muted); margin-bottom: 24px;
+  }
+
+  /* Section */
+  .section { margin-bottom: 48px; }
+  .section-title {
+    font-size: 1.6rem; font-weight: 600; margin-bottom: 20px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border); color: var(--text);
+  }
+
+  /* Grids */
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px 24px; }
+  .stat-label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .stat-value { font-size: 1.9rem; font-weight: 700; font-family: 'Playfair Display', serif; color: var(--accent); }
+  .stat-sub { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+
+  /* Book list items */
+  .book-item { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+  .book-item:last-child { border-bottom: none; }
+  .book-title { font-weight: 600; color: var(--text); }
+  .book-author { color: var(--muted); font-size: 0.82rem; }
+
+  /* Genre bars */
+  .genre-bar { display: flex; align-items: center; margin-bottom: 10px; gap: 12px; }
+  .genre-label { width: 160px; font-size: 0.82rem; color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+  .genre-fill {
+    height: 22px; border-radius: 4px; display: flex; align-items: center;
+    justify-content: flex-end; padding-right: 8px; font-size: 0.72rem;
+    color: var(--bg); font-weight: 600; min-width: 36px; transition: width 0.4s ease;
+  }
+  .genre-count { font-size: 0.75rem; color: var(--muted); width: 50px; flex-shrink: 0; }
+
+  /* Rating bars */
+  .rating-bars { display: flex; align-items: flex-end; gap: 12px; height: 120px; justify-content: center; padding: 16px 0; }
+  .rating-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .rating-count { font-size: 0.75rem; color: var(--muted); }
+  .rating-bar { width: 36px; border-radius: 4px; transition: height 0.4s ease; }
+  .rating-label { font-size: 0.78rem; color: var(--text); }
+
+  /* Author row */
+  .author-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .author-rank { width: 20px; font-size: 0.82rem; color: var(--muted); text-align: right; }
+  .author-name { flex: 1; font-size: 0.88rem; }
+  .author-count { font-size: 0.82rem; color: var(--accent); font-weight: 600; }
+
+  /* Genre shift table */
+  .genre-shift-row {
+    display: flex; gap: 12px; padding: 6px 0;
+    border-bottom: 1px solid var(--border); font-size: 0.85rem;
+  }
+  .genre-shift-year { width: 50px; color: var(--accent); font-weight: 600; }
+  .genre-shift-name { flex: 1; color: var(--text); }
+  .genre-shift-count { color: var(--muted); }
+
+  /* Charts wrapper */
+  .chart-wrap { margin-top: 16px; }
+
+  /* Footer */
+  .footer { text-align: center; padding: 32px 0 48px; border-top: 1px solid var(--border); margin-top: 32px; }
+  .footer-credit { font-size: 0.72rem; color: var(--muted); margin-top: 16px; }
+
+  /* Scrollable */
+  .scrollable { max-height: 180px; overflow-y: auto; }
+
+  /* Screens */
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* Empty state */
+  .empty-state { text-align: center; padding-top: 60px; }
+  .empty-icon { font-size: 2rem; margin-bottom: 16px; }
+  .empty-title { font-size: 1.1rem; margin-bottom: 12px; }
+  .empty-desc { color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
+
+  /* Recharts overrides */
+  .recharts-text { fill: var(--muted); }
+  .recharts-cartesian-grid line { stroke: var(--border); }
+
+  /* Top genres more pages */
+  .genre-pages-note { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--muted); }
+  .genre-pages-note span { font-size: 0.88rem; font-weight: 600; color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Upload Screen -->
+  <div id="screen-upload" class="screen active">
+    <div class="header">
+      <h1 class="title">Leaflet</h1>
+      <p class="subtitle">Your Goodreads reading statistics, beautifully rendered</p>
+    </div>
+    <div class="container">
+      <div class="upload-zone" id="upload-zone">
+        <div class="upload-icon">📚</div>
+        <div class="upload-title">Drop your Goodreads CSV here</div>
+        <div class="upload-desc">
+          or click to browse. Export your library from<br/>
+          <span class="upload-accent">Goodreads → My Books → Import/Export → Export Library</span>
+        </div>
+        <input type="file" id="file-input" accept=".csv" style="display:none"/>
+        <div style="margin-top:24px">
+          <button class="btn" onclick="document.getElementById('file-input').click()">Choose CSV File</button>
+        </div>
+      </div>
+      <div class="skip-row">
+        <label>
+          <input type="checkbox" id="skip-enrich"/>
+          Skip API enrichment (faster, but may have less genre/page data)
+        </label>
+      </div>
+      <div class="howto">
+        <div class="howto-title">How to get your Goodreads data</div>
+        <ol>
+          <li>Go to <span class="upload-accent">goodreads.com</span> and sign in</li>
+          <li>Click <strong>My Books</strong> in the navigation</li>
+          <li>At the bottom-left, find <strong>Import and Export</strong></li>
+          <li>Click <strong>Export Library</strong></li>
+          <li>Download the CSV file and upload it above</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <!-- Enriching Screen -->
+  <div id="screen-enriching" class="screen">
+    <div class="header">
+      <h1 class="title">Leaflet</h1>
+      <p class="subtitle">Enriching your library with Open Library data…</p>
+    </div>
+    <div class="container">
+      <div class="progress-wrap">
+        <div style="font-size:2.5rem;margin-bottom:16px">📖</div>
+        <div style="font-size:1.1rem;margin-bottom:8px">Looking up book details…</div>
+        <div style="font-size:0.85rem;color:var(--muted);margin-bottom:16px">Fetching page counts and genres from Open Library</div>
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+        <div class="progress-pct" id="progress-pct">0%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Empty Screen -->
+  <div id="screen-empty" class="screen">
+    <div class="header"><h1 class="title">Leaflet</h1></div>
+    <div class="container">
+      <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <div class="empty-title">No books found for this selection.</div>
+        <div class="empty-desc" id="empty-desc">Try a different year or switch to All Time.</div>
+        <div class="mode-toggle-row" id="empty-mode-row"></div>
+        <div style="margin-top:24px">
+          <button class="btn-ghost" onclick="resetApp()">Upload a different file</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats Screen -->
+  <div id="screen-stats" class="screen">
+    <div class="header">
+      <h1 class="title">Leaflet</h1>
+      <p class="subtitle" id="stats-subtitle"></p>
+    </div>
+    <div class="container">
+      <div class="mode-toggle-row" id="stats-mode-row"></div>
+
+      <div id="highlights-section"></div>
+      <div id="warning-section"></div>
+
+      <!-- Reading Volume -->
+      <div class="section">
+        <h2 class="section-title">Reading Volume</h2>
+        <div class="grid3" id="volume-grid"></div>
+      </div>
+
+      <!-- Ratings -->
+      <div class="section">
+        <h2 class="section-title">Ratings</h2>
+        <div class="grid2" id="ratings-grid"></div>
+      </div>
+
+      <!-- Superlatives -->
+      <div class="section">
+        <h2 class="section-title">Superlatives</h2>
+        <div class="grid2" id="superlatives-grid"></div>
+      </div>
+
+      <!-- Authors -->
+      <div class="section">
+        <h2 class="section-title">Author Insights</h2>
+        <div class="grid2" id="authors-grid"></div>
+      </div>
+
+      <!-- Genres -->
+      <div class="section" id="genres-section" style="display:none">
+        <h2 class="section-title">Genre &amp; Category Insights</h2>
+        <div id="genres-content"></div>
+      </div>
+
+      <!-- Trends -->
+      <div class="section" id="trends-section" style="display:none">
+        <h2 class="section-title">Reading Trends</h2>
+        <div id="trends-content"></div>
+      </div>
+
+      <div class="footer">
+        <button class="btn-ghost" onclick="resetApp()">Upload a different file</button>
+        <div class="footer-credit">Leaflet · Goodreads Reading Stats · Data enriched via Open Library API</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const WORDS_PER_PAGE = 275;
+const WORDS_PER_MINUTE = 300;
+const CHART_COLORS = ['#d4a054','#6bba6b','#54a0d4','#d46a54','#a06bd4','#d4c854','#54d4b0','#d47a94'];
+const STAR_COLORS = {1:'#d46a54',2:'#d49054',3:'#d4b454',4:'#b4d454',5:'#d4a054'};
+
+let allBooks = null;
+let mode = 'year';
+let selectedYear = new Date().getFullYear();
+let availableYears = [];
+
+// ── Screen management ──
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+}
+
+// ── Upload / drag-drop ──
+const uploadZone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => { e.preventDefault(); uploadZone.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if(f) handleFile(f); });
+uploadZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { const f = e.target.files[0]; if(f) handleFile(f); });
+
+// ── CSV Parsing ──
+function parseGoodreadsCSV(text) {
+  const result = Papa.parse(text, { header: true, skipEmptyLines: true });
+  return result.data.map(row => {
+    const shelves = (row['Exclusive Shelf'] || row['Bookshelves'] || '').toLowerCase();
+    const pages = parseInt(row['Number of Pages'] || row['Page Count'] || '0', 10);
+    const myRating = parseInt(row['My Rating'] || '0', 10);
+    const avgRating = parseFloat(row['Average Rating'] || '0');
+    return {
+      title: (row['Title'] || '').trim(),
+      author: (row['Author'] || row['Author l-f'] || '').trim(),
+      isbn: (row['ISBN13'] || row['ISBN'] || '').replace(/[="]/g, '').trim(),
+      pages: isNaN(pages) ? 0 : pages,
+      myRating: isNaN(myRating) ? 0 : myRating,
+      avgRating: isNaN(avgRating) ? 0 : avgRating,
+      dateRead: row['Date Read'] || '',
+      dateAdded: row['Date Added'] || '',
+      shelves,
+      yearPublished: row['Original Publication Year'] || row['Year Published'] || '',
+      publisher: row['Publisher'] || '',
+      genres: [],
+      enriched: false
+    };
+  });
+}
+
+function getAvailableYears(books) {
+  const years = new Set();
+  books.forEach(b => {
+    if (b.shelves === 'read' && b.dateRead) {
+      const y = new Date(b.dateRead).getFullYear();
+      if (!isNaN(y) && y > 1900) years.add(y);
+    }
+  });
+  return Array.from(years).sort((a,b) => b - a);
+}
+
+function filterReadBooks(books, m, year) {
+  return books.filter(b => {
+    if (b.shelves !== 'read') return false;
+    if (m === 'year' && year) {
+      if (!b.dateRead) return false;
+      return new Date(b.dateRead).getFullYear() === year;
+    }
+    return true;
+  });
+}
+
+// ── Enrichment ──
+async function enrichBooksWithOpenLibrary(books, onProgress) {
+  const toEnrich = books.filter(b => b.pages === 0 || b.genres.length === 0);
+  let done = 0;
+  const cache = {};
+  for (const book of toEnrich) {
+    try {
+      let data = null;
+      if (book.isbn && book.isbn.length >= 10) {
+        const key = 'isbn:' + book.isbn;
+        if (!cache[key]) {
+          const r = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${book.isbn}&format=json&jscmd=data`);
+          cache[key] = await r.json();
+        }
+        data = cache[key]['ISBN:' + book.isbn];
+      }
+      if (!data && book.title) {
+        const q = encodeURIComponent(book.title + ' ' + book.author);
+        const sk = 'search:' + q;
+        if (!cache[sk]) {
+          const r = await fetch(`https://openlibrary.org/search.json?q=${q}&limit=1`);
+          cache[sk] = await r.json();
+        }
+        const sd = cache[sk];
+        if (sd.docs && sd.docs.length > 0) {
+          const doc = sd.docs[0];
+          if (book.pages === 0 && doc.number_of_pages_median) book.pages = doc.number_of_pages_median;
+          if (book.genres.length === 0 && doc.subject) book.genres = doc.subject.slice(0, 5);
+          book.enriched = true;
+        }
+      }
+      if (data) {
+        if (book.pages === 0 && data.number_of_pages) book.pages = data.number_of_pages;
+        if (book.genres.length === 0 && data.subjects) book.genres = data.subjects.map(s => s.name || s).slice(0, 5);
+        book.enriched = true;
+      }
+    } catch(e) {}
+    done++;
+    onProgress(Math.round((done / toEnrich.length) * 100));
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return books;
+}
+
+// ── Handle file ──
+async function handleFile(file) {
+  const text = await file.text();
+  allBooks = parseGoodreadsCSV(text);
+  availableYears = getAvailableYears(allBooks);
+  if (availableYears.length > 0 && !availableYears.includes(selectedYear)) {
+    selectedYear = availableYears[0];
+  }
+
+  const skip = document.getElementById('skip-enrich').checked;
+  if (!skip && allBooks.some(b => b.pages === 0 || b.genres.length === 0)) {
+    showScreen('enriching');
+    await enrichBooksWithOpenLibrary(allBooks, pct => {
+      document.getElementById('progress-fill').style.width = pct + '%';
+      document.getElementById('progress-pct').textContent = pct + '%';
+    });
+  }
+  renderStats();
+}
+
+function resetApp() {
+  allBooks = null;
+  document.getElementById('file-input').value = '';
+  showScreen('upload');
+}
+
+// ── Stats computation ──
+function computeStats(books) {
+  const withPages = books.filter(b => b.pages > 0);
+  const withRatings = books.filter(b => b.myRating > 0);
+  const totalBooks = books.length;
+  const totalPages = withPages.reduce((s,b) => s + b.pages, 0);
+  const totalWords = totalPages * WORDS_PER_PAGE;
+  const totalHours = totalWords / WORDS_PER_MINUTE / 60;
+  const booksWithoutPages = books.filter(b => b.pages === 0).length;
+
+  const datesRead = books.filter(b => b.dateRead).map(b => new Date(b.dateRead)).filter(d => !isNaN(d));
+  datesRead.sort((a,b) => a-b);
+  const firstDate = datesRead[0] || null;
+  const lastDate = datesRead[datesRead.length-1] || null;
+  const spanMonths = firstDate && lastDate ? Math.max(1,(lastDate-firstDate)/(1000*60*60*24*30.44)) : 1;
+  const booksPerMonth = totalBooks / spanMonths;
+  const pagesPerMonth = totalPages / spanMonths;
+
+  const avgRating = withRatings.length > 0 ? withRatings.reduce((s,b)=>s+b.myRating,0)/withRatings.length : 0;
+  const ratingDist = [1,2,3,4,5].map(r => ({ rating:`${r}★`, count: withRatings.filter(b=>b.myRating===r).length, stars:r }));
+
+  const longestBook = withPages.length > 0 ? _.maxBy(withPages,'pages') : null;
+  const shortestBook = withPages.length > 0 ? _.minBy(withPages,'pages') : null;
+  const fiveStarBooks = withRatings.filter(b=>b.myRating===5);
+  const lowestRated = withRatings.length > 0 ? withRatings.filter(b=>b.myRating===_.minBy(withRatings,'myRating').myRating) : [];
+
+  const authorGroups = _.groupBy(books,'author');
+  const authorRanking = Object.entries(authorGroups).map(([author,bks])=>({author,count:bks.length,titles:bks.map(b=>b.title)})).sort((a,b)=>b.count-a.count);
+  const topAuthor = authorRanking[0] || null;
+  const top5Authors = authorRanking.slice(0,5);
+
+  const genreCounts = {}, genrePages = {};
+  books.forEach(b => b.genres.forEach(g => {
+    const genre = g.length>40?g.slice(0,40):g;
+    genreCounts[genre]=(genreCounts[genre]||0)+1;
+    genrePages[genre]=(genrePages[genre]||0)+(b.pages||0);
+  }));
+  const topGenres = Object.entries(genreCounts).map(([genre,count])=>({genre,count,pct:((count/totalBooks)*100).toFixed(1)})).sort((a,b)=>b.count-a.count).slice(0,8);
+  const topGenreByPages = Object.entries(genrePages).map(([genre,pages])=>({genre,pages})).sort((a,b)=>b.pages-a.pages)[0]||null;
+
+  const monthlyActivity = {};
+  books.forEach(b => {
+    if(b.dateRead){const d=new Date(b.dateRead);if(!isNaN(d)){const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;if(!monthlyActivity[k])monthlyActivity[k]={month:k,books:0,pages:0};monthlyActivity[k].books++;monthlyActivity[k].pages+=b.pages||0;}}
+  });
+  const monthlyData = Object.values(monthlyActivity).sort((a,b)=>a.month.localeCompare(b.month));
+
+  const yearlyActivity = {};
+  books.forEach(b=>{if(b.dateRead){const y=new Date(b.dateRead).getFullYear();if(!isNaN(y)){if(!yearlyActivity[y])yearlyActivity[y]={year:y,books:0,pages:0};yearlyActivity[y].books++;yearlyActivity[y].pages+=b.pages||0;}}});
+  const yearlyData = Object.values(yearlyActivity).sort((a,b)=>a.year-b.year);
+  const bestYear = yearlyData.length>0?_.maxBy(yearlyData,'books'):null;
+
+  let streakYears=0;
+  if(yearlyData.length>0){const cy=new Date().getFullYear();for(let y=cy;y>=1900;y--){if(yearlyActivity[y])streakYears++;else break;}}
+
+  const genreByYear={};
+  books.forEach(b=>{if(b.dateRead&&b.genres.length>0){const y=new Date(b.dateRead).getFullYear();if(!isNaN(y)){if(!genreByYear[y])genreByYear[y]={};b.genres.forEach(g=>{const genre=g.length>40?g.slice(0,40):g;genreByYear[y][genre]=(genreByYear[y][genre]||0)+1;});}}});
+  const genreShift = Object.entries(genreByYear).map(([year,genres])=>{const top=Object.entries(genres).sort((a,b)=>b[1]-a[1])[0];return{year:parseInt(year),topGenre:top?top[0]:'Unknown',count:top?top[1]:0};}).sort((a,b)=>a.year-b.year);
+
+  const highlights=[];
+  if(totalHours>0)highlights.push(`You spent ~${Math.round(totalHours)} hours reading — that's about ${(totalHours/5.5).toFixed(1)} cross-country flights.`);
+  if(totalWords>0)highlights.push(`You read ~${(totalWords/1000).toFixed(0)}k words — equivalent to ${(totalWords/80000).toFixed(1)} average novels.`);
+  if(fiveStarBooks.length>0)highlights.push(`You gave ${fiveStarBooks.length} book${fiveStarBooks.length>1?'s':''} a perfect 5★ rating.`);
+  if(topAuthor&&topAuthor.count>1)highlights.push(`Your most-read author is ${topAuthor.author} with ${topAuthor.count} books.`);
+  if(firstDate&&lastDate&&firstDate.getFullYear()!==lastDate.getFullYear()){const years=lastDate.getFullYear()-firstDate.getFullYear()+1;const avgDays=totalBooks>0?Math.round((spanMonths*30.44)/totalBooks):0;highlights.push(`You've read ${totalBooks} books across ${years} years — about one book every ${avgDays} days.`);}
+  if(longestBook)highlights.push(`Your longest read was "${longestBook.title}" at ${longestBook.pages.toLocaleString()} pages.`);
+  if(bestYear)highlights.push(`Your best reading year was ${bestYear.year} with ${bestYear.books} books!`);
+  if(streakYears>1)highlights.push(`You're on a ${streakYears}-year reading streak!`);
+
+  return { totalBooks,totalPages,totalWords,totalHours,booksPerMonth,pagesPerMonth,booksWithoutPages,avgRating,ratingDist,longestBook,shortestBook,fiveStarBooks,lowestRated,topAuthor,top5Authors,topGenres,topGenreByPages,monthlyData,yearlyData,bestYear,streakYears,genreShift,highlights:highlights.slice(0,6),firstDate,lastDate };
+}
+
+// ── Render ──
+function renderModeRow(containerId) {
+  const filteredBooks = filterReadBooks(allBooks, mode, selectedYear);
+  availableYears = getAvailableYears(allBooks);
+  const el = document.getElementById(containerId);
+  let html = `<div class="mode-toggle">
+    <button class="mode-btn ${mode==='year'?'active':''}" onclick="setMode('year')">This Year</button>
+    <button class="mode-btn ${mode==='all'?'active':''}" onclick="setMode('all')">All Time</button>
+  </div>`;
+  if(mode==='year'){
+    html += `<select class="year-select" onchange="setYear(parseInt(this.value))">`;
+    availableYears.forEach(y=>{ html+=`<option value="${y}"${y===selectedYear?' selected':''}>${y}</option>`; });
+    html += `</select>`;
+  }
+  el.innerHTML = html;
+}
+
+function setMode(m) { mode=m; renderStats(); }
+function setYear(y) { selectedYear=y; renderStats(); }
+
+function renderStats() {
+  availableYears = getAvailableYears(allBooks);
+  if(availableYears.length>0 && !availableYears.includes(selectedYear)) selectedYear=availableYears[0];
+  const filteredBooks = filterReadBooks(allBooks, mode, selectedYear);
+
+  if(!filteredBooks.length) {
+    renderModeRow('empty-mode-row');
+    document.getElementById('empty-desc').textContent = mode==='year'
+      ? `No books marked as read in ${selectedYear}. Try a different year or switch to All Time.`
+      : 'No books marked as read in your library.';
+    showScreen('empty');
+    return;
+  }
+
+  const stats = computeStats(filteredBooks);
+  if(mode === 'year') {
+    const idx = stats.highlights.findIndex(h => h.includes('best reading year'));
+    if(idx !== -1) stats.highlights.splice(idx, 1);
+  }
+  showScreen('stats');
+
+  document.getElementById('stats-subtitle').textContent =
+    (mode==='year' ? `Your ${selectedYear} reading year` : 'Your complete reading journey') +
+    ` · ${stats.totalBooks} book${stats.totalBooks!==1?'s':''}`;
+
+  renderModeRow('stats-mode-row');
+
+  // Highlights
+  if(stats.highlights.length>0){
+    let h=`<div class="highlights"><div class="highlights-label">✨ HIGHLIGHTS</div>`;
+    stats.highlights.forEach(item=>{ h+=`<div class="highlight-item">${item}</div>`; });
+    h+=`</div>`;
+    document.getElementById('highlights-section').innerHTML=h;
+  } else { document.getElementById('highlights-section').innerHTML=''; }
+
+  // Warning
+  if(stats.booksWithoutPages>0){
+    document.getElementById('warning-section').innerHTML=`<div class="warning">⚠️ ${stats.booksWithoutPages} book${stats.booksWithoutPages>1?'s':''} missing page count — excluded from page/word/hour totals.</div>`;
+  } else { document.getElementById('warning-section').innerHTML=''; }
+
+  // Volume
+  const volCards = [
+    {icon:'📚',label:'Books Read',value:stats.totalBooks.toLocaleString()},
+    {icon:'📄',label:'Pages Read',value:stats.totalPages.toLocaleString()},
+    {icon:'✍️',label:'Words Read',value:`${(stats.totalWords/1000).toFixed(0)}k`,sub:'~275 words/page'},
+    {icon:'⏱️',label:'Hours Reading',value:Math.round(stats.totalHours).toLocaleString(),sub:'~300 words/min'},
+    {icon:'📅',label:'Books / Month',value:stats.booksPerMonth.toFixed(1)},
+    {icon:'📖',label:'Pages / Month',value:Math.round(stats.pagesPerMonth).toLocaleString()},
+  ];
+  document.getElementById('volume-grid').innerHTML = volCards.map(c=>`
+    <div class="card">
+      <div class="stat-label">${c.icon} ${c.label}</div>
+      <div class="stat-value">${c.value}</div>
+      ${c.sub?`<div class="stat-sub">${c.sub}</div>`:''}
+    </div>`).join('');
+
+  // Ratings
+  const maxCount = Math.max(...stats.ratingDist.map(d=>d.count),1);
+  let ratingBars = `<div class="rating-bars">`;
+  stats.ratingDist.forEach(d=>{
+    const h = Math.max((d.count/maxCount)*90,4);
+    ratingBars+=`<div class="rating-col">
+      <span class="rating-count">${d.count}</span>
+      <div class="rating-bar" style="height:${h}px;background:${STAR_COLORS[d.stars]}"></div>
+      <span class="rating-label">${d.rating}</span>
+    </div>`;
+  });
+  ratingBars+=`</div>`;
+  document.getElementById('ratings-grid').innerHTML=`
+    <div class="card">
+      <div class="stat-label">⭐ Average Rating</div>
+      <div class="stat-value">${stats.avgRating>0?stats.avgRating.toFixed(2):'—'}</div>
+      <div class="stat-sub">${stats.avgRating>0?`Out of ${filteredBooks.filter(b=>b.myRating>0).length} rated books`:'No ratings'}</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">📊 Rating Distribution</div>
+      ${ratingBars}
+    </div>`;
+
+  // Superlatives
+  let supHtml='';
+  if(stats.longestBook) supHtml+=`<div class="card"><div class="stat-label">🏆 Longest Book</div><div style="font-size:1.1rem;font-weight:600;margin-top:6px">${esc(stats.longestBook.title)}</div><div class="stat-sub">${esc(stats.longestBook.author)} · ${stats.longestBook.pages.toLocaleString()} pages</div></div>`;
+  if(stats.shortestBook) supHtml+=`<div class="card"><div class="stat-label">⚡ Shortest Book</div><div style="font-size:1.1rem;font-weight:600;margin-top:6px">${esc(stats.shortestBook.title)}</div><div class="stat-sub">${esc(stats.shortestBook.author)} · ${stats.shortestBook.pages.toLocaleString()} pages</div></div>`;
+  if(stats.fiveStarBooks.length>0){
+    supHtml+=`<div class="card"><div class="stat-label">❤️ 5-Star Reads (${stats.fiveStarBooks.length})</div><div class="scrollable" style="margin-top:8px">`;
+    stats.fiveStarBooks.forEach(b=>{ supHtml+=`<div class="book-item"><span class="book-title">${esc(b.title)}</span><div class="book-author">${esc(b.author)}</div></div>`; });
+    supHtml+=`</div></div>`;
+  }
+  if(stats.lowestRated.length>0){
+    supHtml+=`<div class="card"><div class="stat-label">👎 Lowest Rated (${stats.lowestRated[0].myRating}★)</div><div class="scrollable" style="margin-top:8px">`;
+    stats.lowestRated.forEach(b=>{ supHtml+=`<div class="book-item"><span class="book-title">${esc(b.title)}</span><div class="book-author">${esc(b.author)}</div></div>`; });
+    supHtml+=`</div></div>`;
+  }
+  document.getElementById('superlatives-grid').innerHTML=supHtml;
+
+  // Authors
+  let authHtml='';
+  if(stats.topAuthor){
+    authHtml+=`<div class="card"><div class="stat-label">🖊️ Most-Read Author</div>
+      <div style="font-size:1.2rem;font-weight:700;color:var(--accent);margin-top:6px">${esc(stats.topAuthor.author)}</div>
+      <div class="stat-sub">${stats.topAuthor.count} books</div>
+      <div class="scrollable" style="margin-top:8px">`;
+    stats.topAuthor.titles.forEach(t=>{ authHtml+=`<div style="font-size:0.82rem;color:var(--muted);padding:3px 0">• ${esc(t)}</div>`; });
+    authHtml+=`</div></div>`;
+  }
+  authHtml+=`<div class="card"><div class="stat-label">📊 Top 5 Authors</div><div style="margin-top:8px">`;
+  stats.top5Authors.forEach((a,i)=>{
+    authHtml+=`<div class="author-row"><div class="author-rank">${i+1}.</div><div class="author-name">${esc(a.author)}</div><div class="author-count">${a.count}</div></div>`;
+  });
+  authHtml+=`</div></div>`;
+  document.getElementById('authors-grid').innerHTML=authHtml;
+
+  // Genres
+  if(stats.topGenres.length>0){
+    document.getElementById('genres-section').style.display='';
+    let gHtml=`<div class="card"><div class="stat-label">📖 Top Genres by Book Count</div><div style="margin-top:16px">`;
+    stats.topGenres.forEach((g,i)=>{
+      const w=Math.max(parseFloat(g.pct)*3,8);
+      gHtml+=`<div class="genre-bar">
+        <div class="genre-label" title="${esc(g.genre)}">${esc(g.genre)}</div>
+        <div class="genre-fill" style="width:${w}%;background:${CHART_COLORS[i%CHART_COLORS.length]}">${g.pct}%</div>
+        <div class="genre-count">${g.count} books</div>
+      </div>`;
+    });
+    gHtml+=`</div>`;
+    if(stats.topGenreByPages){
+      gHtml+=`<div class="genre-pages-note">Most pages consumed: <span>${esc(stats.topGenreByPages.genre)}</span> (${stats.topGenreByPages.pages.toLocaleString()} pages)</div>`;
+    }
+    gHtml+=`</div>`;
+    if(mode==='all' && stats.genreShift.length>2){
+      gHtml+=`<div class="card" style="margin-top:16px"><div class="stat-label">📈 Top Genre by Year</div><div style="margin-top:12px">`;
+      stats.genreShift.forEach(g=>{
+        gHtml+=`<div class="genre-shift-row"><span class="genre-shift-year">${g.year}</span><span class="genre-shift-name">${esc(g.topGenre)}</span><span class="genre-shift-count">${g.count} books</span></div>`;
+      });
+      gHtml+=`</div></div>`;
+    }
+    document.getElementById('genres-content').innerHTML=gHtml;
+  } else { document.getElementById('genres-section').style.display='none'; }
+
+  // Trends - using canvas-based charts since Recharts needs React
+  if(stats.monthlyData.length>1 || stats.yearlyData.length>1){
+    document.getElementById('trends-section').style.display='';
+    let tHtml='';
+    if(stats.monthlyData.length>1){
+      tHtml+=`<div class="card" style="margin-bottom:16px"><div class="stat-label">📈 Monthly Reading Activity</div><canvas id="monthly-chart" height="200"></canvas></div>`;
+    }
+    if(mode==='all' && stats.yearlyData.length>1){
+      tHtml+=`<div class="card" style="margin-bottom:16px"><div class="stat-label">📊 Yearly Totals</div><canvas id="yearly-chart" height="220"></canvas>`;
+      if(stats.bestYear) tHtml+=`<div style="margin-top:12px;font-size:0.88rem;color:var(--muted)">Best year: <span style="color:var(--accent);font-weight:600">${stats.bestYear.year}</span> with ${stats.bestYear.books} books and ${stats.bestYear.pages.toLocaleString()} pages</div>`;
+      if(stats.streakYears>1) tHtml+=`<div style="font-size:0.88rem;color:var(--muted);margin-top:4px">Current streak: <span style="color:var(--green);font-weight:600">${stats.streakYears} years</span> of reading</div>`;
+      tHtml+=`</div>`;
+    }
+    document.getElementById('trends-content').innerHTML=tHtml;
+
+    if(stats.monthlyData.length>1) drawBarChart('monthly-chart', stats.monthlyData, 'month', 'books', '#d4a054');
+    if(mode==='all' && stats.yearlyData.length>1) drawDualBarChart('yearly-chart', stats.yearlyData);
+  } else { document.getElementById('trends-section').style.display='none'; }
+}
+
+// ── Canvas charts ──
+function drawBarChart(id, data, labelKey, valueKey, color) {
+  const canvas = document.getElementById(id);
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth || 600;
+  canvas.width = W;
+  canvas.height = parseInt(canvas.getAttribute('height')) || 200;
+  const H = canvas.height;
+  const padL=40, padR=16, padT=16, padB=60;
+  const chartW=W-padL-padR, chartH=H-padT-padB;
+  ctx.clearRect(0,0,W,H);
+  const maxV = Math.max(...data.map(d=>d[valueKey]),1);
+  const barW = Math.max(2, chartW/data.length - 2);
+
+  // Grid
+  ctx.strokeStyle='#2e2a24'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y=padT+chartH*(1-i/4);
+    ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(padL+chartW,y);ctx.stroke();
+    ctx.fillStyle='#9a9080';ctx.font='10px Merriweather,serif';ctx.textAlign='right';
+    ctx.fillText(Math.round(maxV*i/4),padL-4,y+4);
+  }
+
+  // Bars
+  data.forEach((d,i)=>{
+    const x=padL+i*(chartW/data.length)+(chartW/data.length-barW)/2;
+    const bh=Math.max(2,(d[valueKey]/maxV)*chartH);
+    const y=padT+chartH-bh;
+    ctx.fillStyle=color;
+    roundRect(ctx,x,y,barW,bh,3);
+    ctx.fill();
+  });
+
+  // X labels — show subset to avoid overlap
+  const step = Math.max(1,Math.floor(data.length/12));
+  ctx.fillStyle='#9a9080';ctx.font='9px Merriweather,serif';ctx.textAlign='right';
+  data.forEach((d,i)=>{
+    if(i%step===0){
+      const x=padL+(i+0.5)*(chartW/data.length);
+      ctx.save();ctx.translate(x,padT+chartH+8);ctx.rotate(-Math.PI/4);ctx.fillText(d[labelKey],0,0);ctx.restore();
+    }
+  });
+}
+
+function drawDualBarChart(id, data) {
+  const canvas = document.getElementById(id);
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth || 600;
+  canvas.width = W;
+  canvas.height = parseInt(canvas.getAttribute('height')) || 220;
+  const H = canvas.height;
+  const padL=44,padR=44,padT=16,padB=44;
+  const chartW=W-padL-padR, chartH=H-padT-padB;
+  ctx.clearRect(0,0,W,H);
+  const maxBooks=Math.max(...data.map(d=>d.books),1);
+  const maxPages=Math.max(...data.map(d=>d.pages),1);
+  const bw=Math.max(4,(chartW/data.length)/2-4);
+
+  ctx.strokeStyle='#2e2a24';ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y=padT+chartH*(1-i/4);
+    ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(padL+chartW,y);ctx.stroke();
+    ctx.fillStyle='#9a9080';ctx.font='10px Merriweather,serif';
+    ctx.textAlign='right';ctx.fillText(Math.round(maxBooks*i/4),padL-4,y+4);
+    ctx.textAlign='left';ctx.fillText(Math.round(maxPages*i/4).toLocaleString(),padL+chartW+4,y+4);
+  }
+
+  data.forEach((d,i)=>{
+    const cx=padL+(i+0.5)*(chartW/data.length);
+    const bh=Math.max(2,(d.books/maxBooks)*chartH);
+    ctx.fillStyle='#d4a054';
+    roundRect(ctx,cx-bw-2,padT+chartH-bh,bw,bh,3);ctx.fill();
+    const ph=Math.max(2,(d.pages/maxPages)*chartH);
+    ctx.fillStyle='#54a0d4';
+    roundRect(ctx,cx+2,padT+chartH-ph,bw,ph,3);ctx.fill();
+    ctx.fillStyle='#9a9080';ctx.font='10px Merriweather,serif';ctx.textAlign='center';
+    ctx.fillText(d.year,cx,padT+chartH+16);
+  });
+
+  // Legend
+  ctx.fillStyle='#d4a054';ctx.fillRect(padL,H-12,12,10);
+  ctx.fillStyle='#9a9080';ctx.font='10px Merriweather,serif';ctx.textAlign='left';ctx.fillText('Books',padL+16,H-3);
+  ctx.fillStyle='#54a0d4';ctx.fillRect(padL+70,H-12,12,10);
+  ctx.fillStyle='#9a9080';ctx.fillText('Pages',padL+86,H-3);
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h);ctx.lineTo(x,y+h);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+}
+
+function esc(s){ const d=document.createElement('div');d.textContent=s||'';return d.innerHTML; }
+</script>
+</body>
+</html>
